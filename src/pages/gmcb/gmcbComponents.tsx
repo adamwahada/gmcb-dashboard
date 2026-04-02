@@ -200,17 +200,15 @@ export function FeedbackModal({ draft, onChange, onClose, onSubmit }: {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: 480, maxWidth: "95vw", maxHeight: "calc(100vh - 48px)", overflow: "hidden", boxShadow: "0 32px 80px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #f0f0f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>Envoyer un retour</div>
-            <div style={{ fontSize: 13, color: "#667085", marginTop: 4 }}>Signalez un bug, suggérez une amélioration ou donnez une note générale.</div>
-          </div>
-          <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: "50%", background: "#f5f5f5", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <X size={16} />
+        <div style={{ padding: "16px 24px", borderBottom: "1px solid #f0f0f0", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.2px" }}>Envoyer un retour</div>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: "50%", background: "#f1f5f9", border: "1px solid #e2e8f0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0 }}>
+            <X size={15} />
           </button>
         </div>
         <div className="modal-scroll-shell">
           <div className="modal-scroll-area" style={{ padding: "20px 24px", display: "grid", gap: 14 }}>
+            <div style={{ fontSize: 13, color: "#667085", lineHeight: 1.6, paddingBottom: 4, borderBottom: "1px solid #f1f5f9" }}>Signalez un bug, suggérez une amélioration ou donnez une note générale.</div>
             <div>
               <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>Type</div>
               <select value={draft.type} onChange={(e) => onChange({ ...draft, type: e.target.value })} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #d0d5dd", fontSize: 13 }}>

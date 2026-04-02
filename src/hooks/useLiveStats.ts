@@ -59,7 +59,7 @@ export function useLiveStats(): LiveStats {
     try {
       const [r0, r1] = await Promise.all([
         backendApi.getPipelineStats("pipeline_0") as Promise<PipelineStats>,
-        backendApi.getPipelineStats("pipeline_1") as Promise<PipelineStats>,
+        backendApi.getPipelineStats("pipeline_1").catch(() => null) as Promise<PipelineStats | null>,
       ]);
       setP0(r0);
       setP1(r1);
@@ -80,11 +80,11 @@ export function useLiveStats(): LiveStats {
     };
   }, [poll]);
 
-  const totalPackets = p0?.total_packets ?? 0;
-  const conformes = p0?.packages_ok ?? 0;
-  const nokBarcode = p0?.nok_no_barcode ?? 0;
-  const nokDate = p0?.nok_no_date ?? 0;
-  const nokAnomaly = p1?.nok_anomaly ?? 0;
+  const totalPackets = (p0?.total_packets ?? 0) + (p1?.total_packets ?? 0);
+  const conformes = (p0?.packages_ok ?? 0) + (p1?.packages_ok ?? 0);
+  const nokBarcode = (p0?.nok_no_barcode ?? 0) + (p1?.nok_no_barcode ?? 0);
+  const nokDate = (p0?.nok_no_date ?? 0) + (p1?.nok_no_date ?? 0);
+  const nokAnomaly = (p0?.nok_anomaly ?? 0) + (p1?.nok_anomaly ?? 0);
   const totalNok = nokBarcode + nokDate + nokAnomaly;
   const conformityPct =
     totalPackets > 0

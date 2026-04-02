@@ -4,6 +4,7 @@ import {
   ScanLine, CheckCircle2, AlertCircle, Camera, Timer, Video,
   Maximize2, Settings, Filter, ChevronRight, Eye, X,
   SlidersHorizontal, RotateCw, ArrowLeftRight, PlayCircle, LayoutDashboard, ArrowLeft,
+  Loader2, Square,
 } from "lucide-react";
 import logoOctoNorm from "@/assets/logo-octonorm.png";
 import paquetOuvert1 from "@/assets/gmcb/paquet-ouvert-1.png";
@@ -16,12 +17,18 @@ import {
 } from "./gmcbComponents";
 import { useLiveStats } from "@/hooks/useLiveStats";
 import { backendApi } from "@/core/backendApi";
+import { toast } from "sonner";
 
 const GMCBQualite = () => {
   const navigate = useNavigate();
   const stats = useLiveStats();
   const [startingSession, setStartingSession] = useState(false);
+  const [stoppingSession, setStoppingSession] = useState(false);
+  const [sessionStartTime, setSessionStartTime] = useState<string | null>(null);
+  const sessionStartTimeRef = useRef<string | null>(null);
+  const [hourlyStats, setHourlyStats] = useState<any[]>([]);
   const [selectedPipeline, setSelectedPipeline] = useState("pipeline_0");
+  const [pipelineOptions, setPipelineOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [crossings, setCrossings] = useState<any[]>([]);
   const [anomPage, setAnomalPage] = useState(0);
   const [activeFilter, setActiveFilter] = useState("Tous");
@@ -40,6 +47,44 @@ const GMCBQualite = () => {
     : t === "nodate" ? "Date non visible"
     : t === "anomaly" ? "Anomalie détectée"
     : t ?? "—";
+
+  // Track session start time
+  useEffect(() => {
+    if (stats.isRunning) {
+      if (!sessionStartTimeRef.current) {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        sessionStartTimeRef.current = timeStr;
+        setSessionStartTime(timeStr);
+      }
+    } else {
+      sessionStartTimeRef.current = null;
+      setSessionStartTime(null);
+    }
+  }, [stats.isRunning]);
+
+  // Fetch hourly conformity stats
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchHourlyStats() {
+      if (!stats.isRunning) {
+        setHourlyStats([]);
+        return;
+      }
+      try {
+        const promises: Promise<any>[] = [];
+        if (stats.sessionId0) promises.push(backendApi.getHourlyStats(stats.sessionId0));
+        if (stats.sessionId1) promises.push(backendApi.getHourlyStats(stats.sessionId1));
+        const results = await Promise.all(promises);
+        const merged = results.flatMap((r: any) => r?.hourly_stats ?? []);
+        if (!cancelled) setHourlyStats(merged);
+      } catch {
+        // silent — keep previous hourly stats
+      }
+    }
+    fetchHourlyStats();
+    return () => { cancelled = true; };
+  }, [stats.isRunning, stats.sessionId0, stats.sessionId1]);
 
   // Fetch crossings whenever totalPackets changes (every crossing = new packet detected)
   useEffect(() => {
@@ -76,7 +121,6 @@ const GMCBQualite = () => {
     img: backendApi.proofImageUrl(
       c.session_id
       ?? (c.defect_type === "anomaly" ? stats.sessionId1 : stats.sessionId0)
-      ?? stats.sessionId0
       ?? stats.sessionId1
       ?? "",
       c.defect_type,
@@ -92,6 +136,36 @@ const GMCBQualite = () => {
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const pageAnom = filtered.slice(anomPage * PER_PAGE, (anomPage + 1) * PER_PAGE);
   const galleryItems = galleryExpanded ? filtered : filtered.slice(0, 8);
+
+  // MJPEG stream: use ref so we can kill the connection on unmount / page switch
+  const mjpegRef = useRef<HTMLImageElement | null>(null);
+  useEffect(() => {
+    return () => {
+      // On unmount, blank the src to close the MJPEG HTTP connection
+      if (mjpegRef.current) {
+        mjpegRef.current.src = "";
+        mjpegRef.current = null;
+      }
+    };
+  }, []);
+
+  // Load pipeline options for the live-view dropdown from backend config.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPipelines() {
+      try {
+        const res = await backendApi.listPipelines();
+        if (cancelled) return;
+        const opts = (res.pipelines || []).map((p: any) => ({ id: p.id, label: p.label }));
+        setPipelineOptions(opts);
+        if (res.active_view_id) setSelectedPipeline(res.active_view_id);
+      } catch {
+        // Keep fallback hardcoded selection if backend is temporarily unavailable.
+      }
+    }
+    loadPipelines();
+    return () => { cancelled = true; };
+  }, []);
 
   const sessionIso = todayIso();
   const dateLabel = formatAdminDate(sessionIso, { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
@@ -137,7 +211,9 @@ const GMCBQualite = () => {
                   try {
                     await backendApi.startAll();
                     await backendApi.toggleRecording();
-                  } catch {/* silent */} finally { setStartingSession(false); }
+                  } catch {
+                    toast.error("Impossible de démarrer la session. Vérifiez que le système est en ligne.");
+                  } finally { setStartingSession(false); }
                 }}
                 style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "13px 24px", borderRadius: 12, border: "none", background: "linear-gradient(135deg,#0ea5e9,#0d9488)", color: "#fff", fontSize: 15, fontWeight: 700, cursor: startingSession ? "wait" : "pointer", opacity: startingSession ? 0.7 : 1 }}
               >
@@ -189,11 +265,50 @@ const GMCBQualite = () => {
         </div>
       </div>
 
-      {/* Session badge */}
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: stats.isRunning ? "#f0fdf4" : "#f8fafc", border: `1px solid ${stats.isRunning ? "#bbf7d0" : "#e2e8f0"}`, borderRadius: 10, padding: "6px 14px", marginBottom: 20, fontSize: 13 }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: stats.isRunning ? "#22c55e" : "#94a3b8", display: "inline-block", boxShadow: stats.isRunning ? "0 0 0 3px rgba(34,197,94,0.2)" : "none" }} />
-        <span style={{ fontWeight: 600, color: stats.isRunning ? "#15803d" : "#475569" }}>{stats.isRunning ? "Session active" : "Aucune session active"}</span>
-        <span style={{ color: "#666" }}>{dateLabel}</span>
+      {/* Session controls row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+        {/* Session badge */}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: stats.isRunning ? "#f0fdf4" : "#f8fafc", border: `1px solid ${stats.isRunning ? "#bbf7d0" : "#e2e8f0"}`, borderRadius: 10, padding: "6px 14px", fontSize: 13 }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: stats.isRunning ? "#22c55e" : "#94a3b8", display: "inline-block", boxShadow: stats.isRunning ? "0 0 0 3px rgba(34,197,94,0.2)" : "none" }} />
+          <span style={{ fontWeight: 600, color: stats.isRunning ? "#15803d" : "#475569" }}>{stats.isRunning ? "Session active" : "Aucune session active"}</span>
+          {sessionStartTime && <span style={{ color: "#666" }}>• Démarrée à {sessionStartTime}</span>}
+          <span style={{ color: "#666" }}>{dateLabel}</span>
+        </div>
+        {/* Stop button */}
+        {stats.isRunning && (
+          <button
+            onClick={async () => {
+              setStoppingSession(true);
+              try {
+                await backendApi.toggleRecording();
+                await backendApi.stopAll();
+                navigate("/clients/gmcb/admin");
+              } catch {
+                toast.error("Impossible d'arrêter le live. Réessayez dans un instant.");
+              } finally {
+                setStoppingSession(false);
+              }
+            }}
+            disabled={stoppingSession}
+            style={{
+              border: "none",
+              borderRadius: 12,
+              padding: "10px 14px",
+              background: "#dc2626",
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: stoppingSession ? "wait" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              opacity: stoppingSession ? 0.6 : 1,
+            }}
+          >
+            {stoppingSession ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> : <Square size={15} />}
+            Arrêter le live
+          </button>
+        )}
       </div>
 
       {/* Stats */}
@@ -203,6 +318,33 @@ const GMCBQualite = () => {
         <StatCard icon={<Camera size={24} color="#2563eb" />} iconBg="#dbeafe" value={stats.conformityPct.toFixed(2) + "%"} label="Taux de conformité" />
         <StatCard icon={<Timer size={24} color="#9333ea" />} iconBg="#f3e8ff" value={stats.cadence + "/min"} label="Cadence analyse" />
       </div>
+
+      {/* Conformité par heure */}
+      {stats.isRunning && hourlyStats.length > 0 && (
+        <div style={{ marginBottom: 24, padding: 18, borderRadius: 16, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: "0 0 16px 0", fontSize: 16, fontWeight: 700, color: "#0f172a" }}>Conformité par heure</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+            {hourlyStats.map((hourData: any, idx: number) => (
+              <div key={idx} style={{ padding: 14, borderRadius: 12, background: "#fff", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 8 }}>
+                  {hourData.hour}h
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginBottom: 10 }}>
+                  {hourData.conformity_pct?.toFixed(1) ?? "—"}%
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: "#64748b" }}>
+                  <span>Cadence:</span>
+                  <span style={{ fontWeight: 600, color: "#0f172a" }}>{hourData.cadence ?? "—"}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: "#dc2626", marginTop: 4 }}>
+                  <span>Anomalies:</span>
+                  <span style={{ fontWeight: 700, color: "#dc2626" }}>{hourData.anomaly_count ?? "—"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Live Feed */}
       <div style={{ background: "#0f1923", borderRadius: 16, overflow: "hidden", marginBottom: 24, maxWidth: 720, margin: "0 auto 24px" }}>
@@ -218,11 +360,19 @@ const GMCBQualite = () => {
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <select
               value={selectedPipeline}
-              onChange={(e) => { setSelectedPipeline(e.target.value); backendApi.switchView(e.target.value).catch(() => {}); }}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSelectedPipeline(next);
+                backendApi.switchView(next).catch(() => {});
+              }}
               style={{ background: "#1a2733", color: "#fff", border: "1px solid #334155", borderRadius: 6, padding: "4px 8px", fontSize: 12 }}
             >
-              <option value="pipeline_0">CAM-FACE-01 — Barcode + Date</option>
-              <option value="pipeline_1">CAM-HAUT-01 — Anomalie</option>
+              {(pipelineOptions.length > 0 ? pipelineOptions : [
+                { id: "pipeline_0", label: "CAM-FACE-01 — Barcode + Date" },
+                { id: "pipeline_1", label: "CAM-HAUT-01 — Anomalie" },
+              ]).map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
             </select>
             <Settings size={16} color={paramOpen ? "#0ea5e9" : "#aaa"} style={{ cursor: "pointer" }} onClick={() => setParamOpen((v) => !v)} />
             <Maximize2 size={16} color="#aaa" style={{ cursor: "pointer" }} />
@@ -261,6 +411,7 @@ const GMCBQualite = () => {
         )}
         <div style={{ position: "relative", aspectRatio: "16/9", overflow: "hidden" }}>
           <img
+            ref={mjpegRef}
             src={backendApi.videoFeedUrl()}
             alt="Live feed"
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -370,24 +521,6 @@ const GMCBQualite = () => {
               <div key={i} style={{ marginBottom: 10, fontSize: 12 }}>● <strong>{k} :</strong> <span style={{ color: "#666" }}>{v}</span></div>
             ))}
           </div>
-        </div>
-      </div>
-
-      {/* Conformité par heure */}
-      {/* TODO: compute from crossings grouped by hour — phase 2 */}
-      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e8eaed", padding: 20, marginBottom: 24 }}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 18 }}>Conformité par heure — Session en cours</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 12 }}>
-          {/* STATIC DATA START */}
-          {[{ h: "08h", pct: 99.5, ok: 390, d: 2 }, { h: "09h", pct: 99.8, ok: 420, d: 1 }, { h: "10h", pct: 99.3, ok: 405, d: 3 }, { h: "11h", pct: 99.8, ok: 415, d: 1 }, { h: "12h", pct: 100, ok: 210, d: 0 }, { h: "13h", pct: 99.5, ok: 430, d: 2 }, { h: "14h", pct: 99, ok: 286, d: 3 }].map((h, i) => (
-            <div key={i} style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>{h.h}</div>
-              <div style={{ fontWeight: 700, fontSize: 16, color: h.pct === 100 ? "#16a34a" : h.pct >= 99.5 ? "#22c55e" : "#84cc16" }}>{h.pct}%</div>
-              <div style={{ fontSize: 11, color: "#555", margin: "4px 0" }}>{h.ok} OK</div>
-              <div style={{ fontSize: 11, color: h.d > 0 ? "#ef4444" : "#888" }}>{h.d} défauts</div>
-            </div>
-          ))}
-          {/* STATIC DATA END */}
         </div>
       </div>
 

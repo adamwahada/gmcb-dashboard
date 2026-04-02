@@ -31,8 +31,8 @@ const GMCBLogin = () => {
 
       toast({ title: "Bienvenue", description: "Connexion à l'espace GMCB réussie" });
       navigate("/clients/gmcb");
-    } catch (err: any) {
-      toast({ title: "Erreur", description: err?.message || "Erreur inconnue", variant: "destructive" });
+    } catch {
+      toast({ title: "Connexion impossible", description: "Une erreur inattendue s'est produite. Réessayez.", variant: "destructive" });
     } finally {
       setLoading(false);
     }

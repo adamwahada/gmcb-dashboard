@@ -253,6 +253,9 @@ export const statsApi = {
   getCrossings(sessionId: string, limit = 10) {
     return request("GET", `/stats/session/${sessionId}/crossings?limit=${limit}`);
   },
+  getHourlyStats(sessionId: string) {
+    return request("GET", `/stats/session/${sessionId}/hourly`);
+  },
 };
 
 // ─── Pipeline stats ───────────────────────────────────────────────────────────
@@ -287,6 +290,9 @@ export const backendApi = {
   // Pipeline stats
   getPipelineStats: (pipelineId: string) => pipelineStatsApi.get(pipelineId),
 
+  // Pipelines list / active view
+  listPipelines: () => pipelinesApi.list(),
+
   // Switch active video feed
   switchView: (pipelineId: string) => pipelinesApi.setView(pipelineId),
 
@@ -295,6 +301,9 @@ export const backendApi = {
 
   // Session crossings
   getCrossings: (sessionId: string, limit = 10) => statsApi.getCrossings(sessionId, limit),
+
+  // Session hourly stats
+  getHourlyStats: (sessionId: string) => statsApi.getHourlyStats(sessionId),
 
   // Session history
   getSessions: (limit = 100) => statsApi.sessions(limit),

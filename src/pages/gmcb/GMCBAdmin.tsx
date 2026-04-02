@@ -146,8 +146,8 @@ const GMCBAdmin = () => {
     try {
       await backendApi.startAll();
       await backendApi.toggleRecording();
-    } catch (e) {
-      toast.error((e as Error).message || "Erreur lors du démarrage");
+    } catch {
+      toast.error("Impossible de démarrer la session. Vérifiez que le système est en ligne.");
     } finally {
       setSessionLoading(false);
     }
@@ -158,8 +158,8 @@ const GMCBAdmin = () => {
     try {
       await backendApi.toggleRecording();
       await backendApi.stopAll();
-    } catch (e) {
-      toast.error((e as Error).message || "Erreur lors de l'arrêt");
+    } catch {
+      toast.error("Impossible d'arrêter la session. Réessayez dans un instant.");
     } finally {
       setSessionLoading(false);
     }
@@ -170,8 +170,8 @@ const GMCBAdmin = () => {
       await backendApi.resetSessionGuard();
       setGuardStale(false);
       toast.success("Verrou de session réinitialisé — les shifts automatiques peuvent de nouveau démarrer.");
-    } catch (e) {
-      toast.error((e as Error).message || "Erreur lors de la réinitialisation");
+    } catch {
+      toast.error("Réinitialisation échouée. Réessayez.");
     }
   }
 
@@ -179,8 +179,8 @@ const GMCBAdmin = () => {
     try {
       await backendApi.prewarm();
       toast.success("Modèles pré-chargés — pipelines actifs, enregistrement en attente du début du shift.");
-    } catch (e) {
-      toast.error((e as Error).message || "Erreur lors du pré-chargement");
+    } catch {
+      toast.error("Impossible de pré-démarrer les modèles. Vérifiez la connexion au système.");
     } finally {
       setPrewarmLoading(false);
     }
@@ -257,8 +257,8 @@ const GMCBAdmin = () => {
         // Preserve local variants, trimming days no longer in the rule
         const allowed = new Set(updated.weekdays);
         // variants are local-only; callers keep their own state
-      } catch (e) {
-        toast.error((e as Error).message || "Erreur lors de la mise à jour");
+      } catch {
+        toast.error("Impossible de modifier ce shift. Réessayez.");
         return;
       }
       setEditingRuleId(null); setRuleDraft(getDefaultRuleDraft(today)); setRecurringModalOpen(false); return;
@@ -272,8 +272,8 @@ const GMCBAdmin = () => {
         endDate: ruleDraft.endDate,
         weekdays: sortWeekdays(ruleDraft.weekdays),
       });
-    } catch (e) {
-      toast.error((e as Error).message || "Erreur lors de la création");
+    } catch {
+      toast.error("Impossible de créer le shift. Réessayez.");
       return;
     }
     setRuleDraft(getDefaultRuleDraft(today)); setRecurringModalOpen(false);
@@ -314,10 +314,10 @@ const GMCBAdmin = () => {
       setSingleModalOpen(false);
     } catch (e) {
       const msg = (e as Error).message || "";
-      if (msg.includes("déjà passée")) {
+      if (msg.toLowerCase().includes("passée") || msg.toLowerCase().includes("past")) {
         toast.error("Création refusée : l'heure de début est déjà passée.");
       } else {
-        toast.error(msg || "Erreur lors de la sauvegarde");
+        toast.error("Impossible de créer le créneau. Réessayez.");
       }
     }
   }
@@ -335,9 +335,8 @@ const GMCBAdmin = () => {
         await removeOneOff(shiftToDelete.id);
         toast.success(`${shiftLabel || "Le shift"} supprimé avec succès`);
       }
-    } catch (e) {
-      console.error("Delete failed:", e);
-      toast.error((e as Error).message || "Erreur lors de la suppression");
+    } catch {
+      toast.error("Impossible de supprimer. Réessayez.");
     } finally {
       setShiftToDelete(null);
     }
@@ -361,8 +360,8 @@ const GMCBAdmin = () => {
     try {
       await updateOneOff(editingOneOffId, { start_time: oneOffEditDraft.start, end_time: oneOffEditDraft.end });
       setEditingOneOffId(null);
-    } catch (e) {
-      toast.error((e as Error).message || "Erreur lors de la sauvegarde");
+    } catch {
+      toast.error("Impossible de sauvegarder les horaires. Réessayez.");
     }
   }
 
@@ -401,9 +400,8 @@ const GMCBAdmin = () => {
           await createVariant(ruleId, { kind: "availability", active: false, startDate: selectedDate, endDate: selectedDate, weekdays: [wk] });
         }
       }
-    } catch (e) {
-      console.error("[toggleRuleForSelectedDate] failed:", e);
-      toast.error("Erreur lors de la modification");
+    } catch {
+      toast.error("Impossible de modifier la disponibilité. Réessayez.");
       await refreshAfterBatch();
     }
   }
@@ -451,8 +449,8 @@ const GMCBAdmin = () => {
       }
       toast.success("Horaires modifiés pour cette journée");
       setEditingRuleForDate(null);
-    } catch (e) {
-      toast.error((e as Error).message || "Erreur lors de la sauvegarde");
+    } catch {
+      toast.error("Impossible de sauvegarder les horaires de ce jour. Réessayez.");
     }
   }
 
@@ -503,8 +501,8 @@ const GMCBAdmin = () => {
       } else {
         await createVariant(selectedRuleForAction.id, draft);
       }
-    } catch (e) {
-      toast.error((e as Error).message || "Erreur lors de la sauvegarde");
+    } catch {
+      toast.error("Impossible de sauvegarder la personnalisation. Réessayez.");
       return;
     }
     closeRuleActionModal();
@@ -729,8 +727,13 @@ const GMCBAdmin = () => {
               Aucun shift prévu ce jour. Vous pouvez ajouter un shift ponctuel ci-dessous.
             </div>
           ) : selectedSessions.map((session) => {
-            const sessionEnded = selectedDate < today || (selectedDate === today && timeToMinutes(session.end) <= currentMinutes);
-            const sessionInProgress = selectedDate === today && timeToMinutes(session.start) <= currentMinutes && !sessionEnded;
+            const selectedDayHistory = historyDays.find((d) => d.date === selectedDate);
+            const matchingHistorySession = selectedDayHistory?.sessions?.find(
+              (hs) => hs.shift_id === session.id || hs.shift_id === session.sourceId
+            );
+            const hasActuallyEnded = Boolean(matchingHistorySession?.ended_at);
+            const sessionEnded = hasActuallyEnded || selectedDate < today || (selectedDate === today && timeToMinutes(session.end) <= currentMinutes);
+            const sessionInProgress = !hasActuallyEnded && selectedDate === today && timeToMinutes(session.start) <= currentMinutes && !sessionEnded;
             const sessionReadOnly = selectedDateIsPast || sessionEnded;
             return (
               <div key={session.id} style={{ border: `1px solid ${sessionReadOnly ? "#bbf7d0" : sessionInProgress ? "#99f6e4" : session.disabled ? "#fecaca" : "#e5e7eb"}`, background: sessionReadOnly ? "#f0fdf4" : sessionInProgress ? "#f0fdfa" : session.disabled ? "#fff7f7" : "#fff", borderRadius: 14, padding: 14 }}>

@@ -370,12 +370,27 @@ export function HistDayModal({ daySummary, defectLabel, dayModalOrigin, onClose,
   openFeedbackModal: (preset?: Record<string, string>) => void;
 }) {
   const [viewMode, setViewMode] = useState("all");
+  const [statsMetric, setStatsMetric] = useState<"conformite" | "paquets" | "anomalies">("conformite");
+  const [statsHoveredIdx, setStatsHoveredIdx] = useState<number | null>(null);
   const [interruptionTooltipSessionId, setInterruptionTooltipSessionId] = useState<string | null>(null);
+  const [interruptionTooltipPlacement, setInterruptionTooltipPlacement] = useState<"top" | "bottom">("bottom");
   const { shifts } = useShifts();
   const { oneOffSessions } = useOneOffSessions();
   const dayLabel = formatAdminDate(daySummary.date, { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
   const backAction = dayModalOrigin === "calendar" ? onBackToCalendar : null;
   const plannedSessions = getSessionsForDate(daySummary.date, shifts, oneOffSessions);
+
+  const openInterruptionTooltip = (sessionId: string, anchorEl: HTMLElement | null) => {
+    setInterruptionTooltipSessionId(sessionId);
+    if (!anchorEl) return;
+    const rect = anchorEl.getBoundingClientRect();
+    const tooltipApproxHeight = 220;
+    const gap = 12;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const shouldFlipTop = spaceBelow < tooltipApproxHeight + gap && spaceAbove > spaceBelow;
+    setInterruptionTooltipPlacement(shouldFlipTop ? "top" : "bottom");
+  };
 
   const anomByType = [
     { label: "Paquet sans code à barre", color: "#84CC16", count: daySummary.sessions.reduce((s, se) => s + (se.nok_no_barcode ?? 0), 0) },
@@ -385,7 +400,7 @@ export function HistDayModal({ daySummary, defectLabel, dayModalOrigin, onClose,
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: 700, maxWidth: "95vw", maxHeight: "88vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 32px 80px rgba(0,0,0,0.3)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: 920, maxWidth: "97vw", height: "min(92vh, 900px)", minHeight: "min(620px, 92vh)", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 32px 80px rgba(0,0,0,0.3)" }}>
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #f0f0f0", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -412,9 +427,9 @@ export function HistDayModal({ daySummary, defectLabel, dayModalOrigin, onClose,
         </div>
         {/* View toggle */}
         <div style={{ padding: "12px 24px", borderBottom: "1px solid #f0f0f0", display: "flex", gap: 6, flexShrink: 0 }}>
-          {["all", "sessions"].map((v) => (
+          {(["all", "sessions", "stats"] as const).map((v) => (
             <button key={v} onClick={() => setViewMode(v)} style={{ padding: "6px 16px", borderRadius: 20, border: "1px solid #e0e0e0", fontSize: 12, cursor: "pointer", fontWeight: 500, background: viewMode === v ? "#111" : "#fff", color: viewMode === v ? "#fff" : "#444", transition: "all .15s" }}>
-              {v === "all" ? "Vue globale" : "Par session"}
+              {v === "all" ? "Vue globale" : v === "sessions" ? "Par session" : "Stats"}
             </button>
           ))}
         </div>
@@ -434,13 +449,13 @@ export function HistDayModal({ daySummary, defectLabel, dayModalOrigin, onClose,
                   const startH = formatTunisiaTime(s.started_at);
                   const endH = formatTunisiaTime(s.ended_at);
                   return (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                      <div style={{ width: 72, fontSize: 12, color: "#666" }}>{startH}–{endH}</div>
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "96px minmax(260px, 1fr) 70px 88px", alignItems: "center", columnGap: 14, rowGap: 4, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #f1f5f9" }}>
+                      <div style={{ fontSize: 12, color: "#666", whiteSpace: "nowrap" }}>{startH}–{endH}</div>
                       <div style={{ flex: 1, background: "#f0fdf4", borderRadius: 4, height: 8, overflow: "hidden" }}>
                         <div style={{ width: pct + "%", background: "#22c55e", height: "100%", borderRadius: 4 }} />
                       </div>
-                      <div style={{ width: 48, fontSize: 12, fontWeight: 600, textAlign: "right", color: "#16a34a" }}>{pct}%</div>
-                      <div style={{ width: 52, fontSize: 11, color: "#999", textAlign: "right" }}>{nok} défauts</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, textAlign: "right", color: "#16a34a", whiteSpace: "nowrap" }}>{pct}%</div>
+                      <div style={{ fontSize: 11, color: "#999", textAlign: "right", whiteSpace: "nowrap" }}>{nok} défauts</div>
                     </div>
                   );
                 })}
@@ -590,22 +605,28 @@ export function HistDayModal({ daySummary, defectLabel, dayModalOrigin, onClose,
                         {isInterrupted && (
                           <div
                             style={{ position: "relative" }}
-                            onMouseEnter={() => setInterruptionTooltipSessionId(s.id)}
                             onMouseLeave={() => setInterruptionTooltipSessionId((current) => current === s.id ? null : current)}
                           >
                             <button
                               type="button"
                               aria-label="Voir le détail de l'interruption"
-                              onFocus={() => setInterruptionTooltipSessionId(s.id)}
+                              onMouseEnter={(e) => openInterruptionTooltip(s.id, e.currentTarget)}
+                              onFocus={(e) => openInterruptionTooltip(s.id, e.currentTarget)}
                               onBlur={() => setInterruptionTooltipSessionId((current) => current === s.id ? null : current)}
-                              onClick={() => setInterruptionTooltipSessionId((current) => current === s.id ? null : s.id)}
+                              onClick={(e) => {
+                                setInterruptionTooltipSessionId((current) => {
+                                  if (current === s.id) return null;
+                                  openInterruptionTooltip(s.id, e.currentTarget);
+                                  return s.id;
+                                });
+                              }}
                               style={{ width: 36, height: 36, borderRadius: 10, border: "1px solid #fdba74", background: "#fff7ed", color: "#c2410c", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: interruptionTooltipOpen ? "0 8px 24px rgba(249,115,22,0.18)" : "none" }}
                             >
                               <TriangleAlert size={16} />
                             </button>
                             {interruptionTooltipOpen && (
-                              <div style={{ position: "absolute", top: "calc(100% + 12px)", right: 0, width: 300, maxWidth: "min(300px, 72vw)", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "14px 16px", boxShadow: "0 20px 48px rgba(15,23,42,0.18)", zIndex: 30 }}>
-                                <div style={{ position: "absolute", top: -7, right: 12, width: 14, height: 14, background: "#fff", transform: "rotate(45deg)", borderLeft: "1px solid #e5e7eb", borderTop: "1px solid #e5e7eb" }} />
+                              <div style={{ position: "absolute", ...(interruptionTooltipPlacement === "top" ? { bottom: "calc(100% + 12px)" } : { top: "calc(100% + 12px)" }), right: 0, width: 300, maxWidth: "min(300px, 72vw)", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "14px 16px", boxShadow: "0 20px 48px rgba(15,23,42,0.18)", zIndex: 30 }}>
+                                <div style={{ position: "absolute", ...(interruptionTooltipPlacement === "top" ? { bottom: -7, borderRight: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb" } : { top: -7, borderLeft: "1px solid #e5e7eb", borderTop: "1px solid #e5e7eb" }), right: 12, width: 14, height: 14, background: "#fff", transform: "rotate(45deg)" }} />
                                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                                   <div style={{ width: 30, height: 30, borderRadius: 10, background: "#fff7ed", border: "1px solid #fdba74", color: "#c2410c", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                                     <TriangleAlert size={15} />
@@ -656,6 +677,193 @@ export function HistDayModal({ daySummary, defectLabel, dayModalOrigin, onClose,
               })}
             </div>
           )}
+
+          {/* ── Stats view ── */}
+          {viewMode === "stats" && (() => {
+            const sorted = [...daySummary.sessions].sort((a, b) => {
+              const aT = parseBackendTimestamp(a.started_at)?.getTime() ?? 0;
+              const bT = parseBackendTimestamp(b.started_at)?.getTime() ?? 0;
+              return aT - bT;
+            });
+            const chartData = sorted.map((s) => {
+              const total = s.total ?? 0;
+              const nok = (s.nok_no_barcode ?? 0) + (s.nok_no_date ?? 0) + (s.nok_anomaly ?? 0);
+              const pct = total > 0 ? (s.ok_count / total) * 100 : 0;
+              const startMs = parseBackendTimestamp(s.started_at)?.getTime() ?? 0;
+              const endMs   = parseBackendTimestamp(s.ended_at)?.getTime()   ?? 0;
+              const durMin  = startMs && endMs && endMs > startMs ? (endMs - startMs) / 60000 : 1;
+              const paquetsPerMin   = total / durMin;
+              const anomaliesPerMin = nok   / durMin;
+              return {
+                label: formatTunisiaTime(s.started_at),
+                conformite: pct,
+                paquets: paquetsPerMin,
+                anomalies: anomaliesPerMin,
+                totalAbs: total,
+                nokAbs: nok,
+                durMin,
+              };
+            });
+            const metricCfg = statsMetric === "conformite"
+              ? { label: "Conformité %",  color: "#22c55e", area: "#c7f0d8", fmt: (v: number) => v.toFixed(1) + "%",   unit: "" }
+              : statsMetric === "paquets"
+              ? { label: "Paquets / min", color: "#2563eb", area: "#bfdbfe", fmt: (v: number) => v.toFixed(1) + "/min", unit: "/min" }
+              : { label: "Anomalies / min", color: "#ef4444", area: "#fecaca", fmt: (v: number) => v.toFixed(2) + "/min", unit: "/min" };
+            const rawVals = chartData.map((d) => d[statsMetric]);
+            const maxVal = statsMetric === "conformite" ? 100 : Math.max(...rawVals, 1);
+            const n = chartData.length;
+            const VW = 700; const VH = 230;
+            const XMIN = 52; const YMIN = 16; const YMAX = 190;
+            const xOf = (i: number) => n <= 1 ? VW / 2 : XMIN + (i / (n - 1)) * (VW - XMIN - 8);
+            const yOf = (v: number) => YMAX - ((v / maxVal) * (YMAX - YMIN));
+            const pts = chartData.map((d, i) => ({ x: xOf(i), y: yOf(d[statsMetric]) }));
+            const gridLevels = [0, 0.25, 0.5, 0.75, 1];
+            const hov = statsHoveredIdx !== null && statsHoveredIdx < n ? chartData[statsHoveredIdx] : null;
+            return (
+              <div>
+                {/* Metric picker */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                    <TrendingUp size={16} color="#0d9488" /> Évolution par session
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {(["conformite", "paquets", "anomalies"] as const).map((m) => {
+                      const c = m === "conformite" ? { label: "Conformité %", col: "#22c55e" } : m === "paquets" ? { label: "Paquets/min", col: "#2563eb" } : { label: "Anomalies/min", col: "#ef4444" };
+                      const active = statsMetric === m;
+                      return (
+                        <button key={m} onClick={() => { setStatsMetric(m); setStatsHoveredIdx(null); }}
+                          style={{ padding: "5px 13px", borderRadius: 20, border: `1px solid ${active ? c.col : "#e0e0e0"}`, fontSize: 12, cursor: "pointer", fontWeight: active ? 700 : 500, background: active ? c.col : "#fff", color: active ? "#fff" : "#555", transition: "all .12s" }}>
+                          {c.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {n < 2 ? (
+                  <div style={{ textAlign: "center", padding: "48px 0", color: "#94a3b8", fontSize: 13 }}>Pas assez de sessions pour afficher une courbe.</div>
+                ) : (
+                  <div style={{ position: "relative", width: "100%", height: 260 }} onMouseLeave={() => setStatsHoveredIdx(null)}>
+                    <svg
+                      viewBox={`0 0 ${VW} ${VH + 26}`}
+                      preserveAspectRatio="none"
+                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible" }}
+                    >
+                      {/* Grid + Y labels */}
+                      {gridLevels.map((pct, gi) => {
+                        const yg = yOf(pct * maxVal);
+                        const lbl = statsMetric === "conformite" ? (pct * 100).toFixed(0) + "%" : Math.round(pct * maxVal).toLocaleString();
+                        return (
+                          <g key={gi}>
+                            <line x1={XMIN} y1={yg} x2={VW - 4} y2={yg} stroke="#f0f0f0" strokeWidth="1" />
+                            <text x={XMIN - 5} y={yg + 4} fontSize="10" fill="#aaa" textAnchor="end">{lbl}</text>
+                          </g>
+                        );
+                      })}
+                      {/* Y axis */}
+                      <line x1={XMIN} y1={YMIN} x2={XMIN} y2={YMAX + 2} stroke="#e2e8f0" strokeWidth="1" />
+                      {/* Area fill */}
+                      <polygon
+                        points={[`${pts[0].x},${YMAX}`, ...pts.map((p) => `${p.x},${p.y}`), `${pts[n - 1].x},${YMAX}`].join(" ")}
+                        fill={metricCfg.area} opacity="0.4"
+                      />
+                      {/* Line */}
+                      <polyline
+                        points={pts.map((p) => `${p.x},${p.y}`).join(" ")}
+                        fill="none" stroke={metricCfg.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      />
+                      {/* X labels */}
+                      {pts.map((p, i) => (
+                        <text key={i} x={p.x} y={VH + 20} fontSize="10" fill="#94a3b8" textAnchor="middle">{chartData[i].label}</text>
+                      ))}
+                      {/* Hover vertical guide + dots */}
+                      {pts.map((p, i) => (
+                        <g key={i} style={{ cursor: "pointer" }} onMouseEnter={() => setStatsHoveredIdx(i)}>
+                          <rect x={p.x - 16} y={YMIN} width={32} height={YMAX - YMIN} fill="transparent" />
+                          {statsHoveredIdx === i && (
+                            <line x1={p.x} y1={YMIN} x2={p.x} y2={YMAX} stroke={metricCfg.color} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
+                          )}
+                          <circle cx={p.x} cy={p.y} r={statsHoveredIdx === i ? 5 : 3} fill={metricCfg.color} stroke="#fff" strokeWidth="2" />
+                        </g>
+                      ))}
+                    </svg>
+
+                    {/* Hover tooltip — flips left when near right edge */}
+                    {hov !== null && statsHoveredIdx !== null && (() => {
+                      const p = pts[statsHoveredIdx];
+                      const leftPct = n <= 1 ? 50 : ((p.x - XMIN) / (VW - XMIN - 8)) * 100;
+                      const near = leftPct > 65;
+                      return (
+                        <div style={{
+                          position: "absolute",
+                          top: Math.max(4, (p.y / VH) * 230 - 60),
+                          ...(near ? { right: `calc(${100 - leftPct}% + 14px)` } : { left: `calc(${leftPct}% + 14px)` }),
+                          background: "#fff",
+                          borderRadius: 10,
+                          padding: "10px 14px",
+                          boxShadow: "0 4px 20px rgba(0,0,0,0.13)",
+                          border: `1px solid ${metricCfg.color}40`,
+                          zIndex: 20,
+                          fontSize: 12,
+                          whiteSpace: "nowrap",
+                          pointerEvents: "none",
+                          minWidth: 140,
+                        }}>
+                          <div style={{ color: "#94a3b8", fontSize: 11, marginBottom: 4 }}>Session #{statsHoveredIdx + 1} — {hov.label}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: metricCfg.color, display: "inline-block" }} />
+                            <span style={{ fontWeight: 800, color: metricCfg.color, fontSize: 15 }}>{metricCfg.fmt(hov[statsMetric])}</span>
+                          </div>
+                          <div style={{ display: "grid", gap: 2 }}>
+                            {statsMetric !== "conformite" && <div style={{ fontSize: 11, color: "#64748b" }}>Conformité : <b>{hov.conformite.toFixed(1)}%</b></div>}
+                            {statsMetric !== "paquets"    && <div style={{ fontSize: 11, color: "#64748b" }}>Paquets/min : <b>{hov.paquets.toFixed(1)}</b></div>}
+                            {statsMetric !== "anomalies"  && <div style={{ fontSize: 11, color: "#64748b" }}>Anomalies/min : <b style={{ color: "#ef4444" }}>{hov.anomalies.toFixed(2)}</b></div>}
+                            <div style={{ fontSize: 11, color: "#64748b", borderTop: "1px solid #f1f5f9", paddingTop: 4, marginTop: 2 }}>Durée : <b>{hov.durMin >= 60 ? `${Math.floor(hov.durMin / 60)}h ${Math.round(hov.durMin % 60)}m` : `${Math.round(hov.durMin)}m`}</b></div>
+                            <div style={{ fontSize: 11, color: "#64748b" }}>Total paquets : <b>{hov.totalAbs.toLocaleString()}</b></div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Summary table */}
+                <div style={{ marginTop: 28, borderRadius: 12, overflow: "hidden", border: "1px solid #f1f5f9" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "36px 100px 64px 1fr 72px 80px 80px", padding: "8px 16px", background: "#f8fafc", fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", gap: 8 }}>
+                    <span>#</span>
+                    <span>Heure</span>
+                    <span style={{ textAlign: "right" }}>Durée</span>
+                    <span />
+                    <span style={{ textAlign: "right" }}>Total</span>
+                    <span style={{ textAlign: "right" }}>Conforme</span>
+                    <span style={{ textAlign: "right", color: "#ef4444" }}>Anom/min</span>
+                  </div>
+                  {sorted.map((s, i) => {
+                    const d = chartData[i];
+                    const pct = d.totalAbs > 0 ? ((s.ok_count ?? 0) / d.totalAbs * 100).toFixed(1) : "—";
+                    const startH = formatTunisiaTime(s.started_at);
+                    const endH   = formatTunisiaTime(s.ended_at);
+                    const durLabel = d.durMin >= 60 ? `${Math.floor(d.durMin / 60)}h${Math.round(d.durMin % 60)}m` : `${Math.round(d.durMin)}m`;
+                    const isHov  = statsHoveredIdx === i;
+                    return (
+                      <div key={i}
+                        onMouseEnter={() => setStatsHoveredIdx(i)}
+                        onMouseLeave={() => setStatsHoveredIdx(null)}
+                        style={{ display: "grid", gridTemplateColumns: "36px 100px 64px 1fr 72px 80px 80px", alignItems: "center", padding: "9px 16px", fontSize: 12, borderTop: "1px solid #f1f5f9", background: isHov ? "#f0fdf4" : "#fff", cursor: "default", transition: "background .1s", gap: 8 }}>
+                        <span style={{ fontWeight: 700, color: isHov ? metricCfg.color : "#94a3b8", fontSize: 13 }}>#{i + 1}</span>
+                        <span style={{ color: "#64748b", whiteSpace: "nowrap", fontSize: 12 }}>{startH}–{endH}</span>
+                        <span style={{ textAlign: "right", color: "#94a3b8", fontWeight: 500 }}>{durLabel}</span>
+                        <span />
+                        <span style={{ textAlign: "right", fontWeight: 600, color: "#0f172a" }}>{d.totalAbs.toLocaleString()}</span>
+                        <span style={{ textAlign: "right", fontWeight: 600, color: "#16a34a" }}>{pct}%</span>
+                        <span style={{ textAlign: "right", fontWeight: 700, color: d.nokAbs > 0 ? "#ef4444" : "#94a3b8" }}>{d.anomalies.toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
           </div>
         </div>
       </div>
